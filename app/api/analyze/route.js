@@ -20,8 +20,11 @@ export async function POST(req) {
 
     console.log(`Forwarding analysis request for ${imageUrl} to Python backend...`);
 
-    // Call the Python FastAPI server running on port 8000
-    const pythonRes = await fetch('http://127.0.0.1:8000/analyze', {
+    const pythonBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8000';
+    console.log(`Connecting to Python backend at: ${pythonBackendUrl}`);
+
+    // Call the Python FastAPI server
+    const pythonRes = await fetch(`${pythonBackendUrl}/analyze`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
