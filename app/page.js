@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 import UploadBox from '@/components/UploadBox';
 
 export default function Home() {
@@ -11,25 +12,49 @@ export default function Home() {
   // Handles the full upload → analyze → redirect flow
   async function handleUpload(file) {
     setLoading(true);
-    const formData = new FormData();
-    formData.append('file', file);
+    toast.loading('Uploading prescription...', { id: 'upload-toast' });
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
 
-    // Step 1: Upload the image/PDF to Cloudinary
-    const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
-    const { url } = await uploadRes.json();
+      // Step 1: Upload the image/PDF to Cloudinary
+      const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (!uploadRes.ok) {
+        throw new Error('Upload to server failed.');
+      }
+      const uploadData = await uploadRes.json();
+      if (!uploadData.success) {
+        throw new Error(uploadData.error || 'Failed to upload image.');
+      }
+      const { url } = uploadData;
 
-    // Step 2: Send the Cloudinary URL to Gemini AI for analysis
-    const analyzeRes = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageUrl: url }),
-    });
-    const data = await analyzeRes.json();
+      // Step 2: Send the Cloudinary URL to Gemini AI for analysis
+      toast.loading('AI is analyzing prescription...', { id: 'upload-toast' });
+      const analyzeRes = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: url }),
+      });
+      if (!analyzeRes.ok) {
+        throw new Error('AI Analysis server request failed.');
+      }
+      const data = await analyzeRes.json();
 
-    // Step 3: Store results in localStorage and navigate to results page
-    localStorage.setItem('prescriptionData', JSON.stringify(data));
-    router.push('/results');
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to analyze prescription.');
+      }
+
+      // Step 3: Store results in localStorage and navigate to results page
+      localStorage.setItem('prescriptionData', JSON.stringify(data));
+      toast.success('Prescription analyzed successfully!', { id: 'upload-toast' });
+      router.push('/results');
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Something went wrong during analysis.', { id: 'upload-toast' });
+      setLoading(false);
+    }
   }
+
 
   // ── Loading Overlay ──────────────────────────────────────────────
   if (loading) {
