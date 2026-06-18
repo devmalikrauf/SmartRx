@@ -29,10 +29,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Python virtual environments & scratch files
+# Python virtual environments, pycache & scratch files
 .venv
 venv
 ENV
 scratch/
 python-ml/.venv
 python-ml/venv
+__pycache__/
+*.pyc
+python-ml/**/__pycache__/
