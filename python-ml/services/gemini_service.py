@@ -1,97 +1,110 @@
 import google.generativeai as genai
 import os
 import json
+from PIL import Image
 
-def analyze_prescription_with_gemini(image_bytes: bytes, mime_type: str = "image/png", ocr_text: str = "") -> dict:
-  """
-  Sends the original image bytes and Tesseract OCR text reference to Gemini 1.5 Pro
-  for highly accurate prescription detail extraction.
-  """
-  api_key = os.getenv("GEMINI_API_KEY")
-  if not api_key:
-    # Fallback to loading from .env if not set in environment
-    from dotenv import load_dotenv
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY")
-      
-  if not api_key:
-    raise ValueError("GEMINI_API_KEY is not configured in the environment.")
+def analyze_prescription(image_path: str) -> dict:
+    """
+    Takes a prescription image path, sends it to Gemini 1.5 Flash API,
+    and returns a structured JSON dictionary containing medicines, tests, etc.
+    """
+    try:
+        # Step 1: Ensure the image file exists
+        if not os.path.exists(image_path):
+            return {"status": "error", "message": "Invalid image path, file not found."}
 
-  # Configure Gemini SDK
-  genai.configure(api_key=api_key)
-  
-  # Use gemini-1.5-pro for maximum reasoning and handwriting transcription accuracy
-  model = genai.GenerativeModel("gemini-1.5-pro")
+        # Step 2: Initialize Gemini API key
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            # Fallback to load from .env file if available
+            from dotenv import load_dotenv
+            load_dotenv()
+            api_key = os.getenv("GEMINI_API_KEY")
+            
+        if not api_key:
+            return {"status": "error", "message": "GEMINI_API_KEY environment variable is not configured."}
 
-  # Structure prompt with medical context and OCR reference text
-  prompt = f"""You are an expert medical prescription reader AI. Your task is to analyze the uploaded prescription image carefully and extract all information accurately in valid JSON format.
+        # Step 3: Configure the genai library
+        genai.configure(api_key=api_key)
 
-CRITICAL CORRECTIONS & RULES:
-1. EXACT SPELLING FIX: You frequently misread "Dextop" as "Dexfop". If you read "Dexfop" or similar, YOU MUST change it to "Dextop". "Dexfop" is not a valid medicine, the correct spelling is "Dextop".
-2. ULTRASOUND FIX: You frequently misread "U/S Abdomen" as "w/S Abdomen", "W/S Abdomen", "v/S Abdomen", etc. Any ultrasound of the abdomen MUST be transcribed exactly as "U/S Abdomen" or "Ultrasound Abdomen". NEVER use "w/S" or "W/S" or "V/S".
-3. Use medical context to correct messy handwriting and typical OCR errors. Do not just copy visual misreadings blindly.
-4. Do not assume or hallucinate. Only extract what is written, but correct clear visual misreadings using medical context.
+        # Step 4: Use gemini-2.5-flash model
+        model = genai.GenerativeModel("gemini-2.5-flash")
 
-We ran a traditional OCR engine on the image. Here is the raw text it extracted (it may contain typos or errors, but use it as a reference to help verify names and spellings):
----
-{ocr_text}
----
+        # Open the image using Pillow to pass inline to the Gemini API
+        img = Image.open(image_path)
 
-Analyze the image and the reference OCR text, and return the following JSON structure. Do NOT include any markdown formatting, code fences, or extra text — return ONLY the raw JSON object.
-
-JSON Structure:
-{{
-  "medicines": [
-    {{
-      "name": "medicine name",
-      "dosage": "dosage (e.g. 500mg, 1 tablet)",
-      "frequency": "how often (e.g. twice a day, once daily at night)",
-      "duration": "how long (e.g. 5 days, 2 weeks)",
-      "instructions": "special instructions (e.g. take after food)"
-    }}
-  ],
-  "tests": ["test name 1", "test name 2"],
-  "ultrasounds": ["ultrasound name 1"],
-  "precautions": ["precaution 1", "precaution 2"]
-}}
-
-Rules:
-- Return ONLY the raw JSON object, nothing else."""
-
-  # Construct the image part for API payload
-  image_part = {
-    "mime_type": mime_type,
-    "data": image_bytes
-  }
-
-  # Generate content using Gemini
-  response = model.generate_content([prompt, image_part])
-  text = response.text
-
-  # Clean the response to ensure valid JSON parsing
-  cleaned_text = text.replace("```json", "").replace("```", "").strip()
-  
-  try:
-    data = json.loads(cleaned_text)
-    
-    # Hardcoded post-processing fixes for known strict errors
-    import re
-    if "medicines" in data and isinstance(data["medicines"], list):
-        for med in data["medicines"]:
-            if isinstance(med, dict) and med.get("name"):
-                med["name"] = re.sub(r'(?i)dexfop', 'Dextop', med["name"])
-    
-    def fix_us_abdomen(item_list):
-        if not isinstance(item_list, list):
-            return item_list
-        return [re.sub(r'(?i)\b[vw]/s\b', 'U/S', item) if isinstance(item, str) else item for item in item_list]
-
-    if "tests" in data:
-        data["tests"] = fix_us_abdomen(data["tests"])
-    if "ultrasounds" in data:
-        data["ultrasounds"] = fix_us_abdomen(data["ultrasounds"])
+        # Step 5: The Prompt Strategy
+        # We use a highly detailed, strict system prompt here.
+        # - We instruct it to be literal and avoid hallucinating (guessing) by enforcing "Not clearly visible".
+        # - We provide the exact JSON skeleton it must fill out.
+        # - We forbid it from using markdown fences (```json) so we can parse it directly using json.loads().
+        prompt = """
+        You are a highly strict and precise medical data extraction AI.
+        Analyze the provided prescription image and extract the information based ONLY on what is clearly visible.
         
-    return data
-  except json.JSONDecodeError as e:
-    print(f"Failed to parse Gemini response as JSON: {cleaned_text}")
-    raise ValueError(f"Gemini response was not valid JSON: {e}")
+        CRITICAL RULES:
+        1. Only extract what is CLEARLY visible in the image.
+        2. Never assume, guess, or hallucinate any information.
+        3. If something is not clearly readable, write "Not clearly visible".
+        4. Always return valid JSON in the exact format shown below.
+        5. Return ONLY the raw JSON object. No extra text, no markdown block formatting (like ```json or ```).
+
+        EXACT JSON FORMAT REQUIRED:
+        {
+          "medicines": [
+            {
+              "name": "medicine name",
+              "dosage": "exact dose",
+              "frequency": "how many times per day",
+              "duration": "how many days",
+              "instructions": "before/after food etc"
+            }
+          ],
+          "tests": [],
+          "ultrasounds": [],
+          "precautions": [],
+          "confidence": "high or medium or low",
+          "doctor_name": "if visible",
+          "patient_name": "if visible",
+          "date": "if visible"
+        }
+        """
+
+        # Step 6: Send the request to Gemini API
+        # We pass both the strict text prompt and the PIL image object
+        response = model.generate_content([prompt, img])
+        
+        # Step 7: Clean up the response text to guarantee JSON parsing
+        text = response.text.strip()
+        
+        # Failsafe: Just in case the model ignores the "no markdown" rule
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+            
+        text = text.strip()
+
+        # Step 8: Parse the string into a Python Dictionary
+        data = json.loads(text)
+        
+        # Ensure it returns the JSON directly
+        return data
+
+    except json.JSONDecodeError as e:
+        # This triggers if Gemini returns something that isn't valid JSON
+        print(f"JSON Parse Error: {str(e)}\nRaw Output: {text}")
+        return {"status": "error", "message": "Gemini API did not return a valid JSON format."}
+        
+    except Exception as e:
+        # This catches network errors, quota limits, API key issues, etc.
+        print(f"API Error: {str(e)}")
+        return {"status": "error", "message": f"Gemini API call failed: {str(e)}"}
+
+# Optional testing block
+if __name__ == "__main__":
+    # result = analyze_prescription("sample.jpg")
+    # print(json.dumps(result, indent=2))
+    pass

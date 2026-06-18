@@ -39,3 +39,10 @@ python-ml/venv
 __pycache__/
 *.pyc
 python-ml/**/__pycache__/
+
+# NLTK punkt_tab downloads
+python-ml/nltk_data/tokenizers/punkt_tab.zip
+python-ml/nltk_data/tokenizers/punkt_tab/
+
+# Temporary enhanced images
+python-ml/enhanced_images/

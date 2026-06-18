@@ -5,13 +5,23 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import UploadBox from '@/components/UploadBox';
 
+const STEPS = [
+  { id: 1, label: "Uploading prescription..." },
+  { id: 2, label: "Checking image quality..." },
+  { id: 3, label: "AI is reading prescription..." },
+  { id: 4, label: "Extracting medicines..." },
+  { id: 5, label: "Almost ready!" }
+];
+
 export default function Home() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
 
   // Handles the full upload → analyze → redirect flow
   async function handleUpload(file) {
     setLoading(true);
+    setCurrentStep(1); // Uploading prescription...
     toast.loading('Uploading prescription...', { id: 'upload-toast' });
     try {
       const formData = new FormData();
@@ -22,11 +32,21 @@ export default function Home() {
       if (!uploadRes.ok) {
         throw new Error('Upload to server failed.');
       }
+      
+      setCurrentStep(2); // Checking image quality...
+      
       const uploadData = await uploadRes.json();
       if (!uploadData.success) {
         throw new Error(uploadData.error || 'Failed to upload image.');
       }
       const { url } = uploadData;
+
+      setCurrentStep(3); // AI is reading prescription...
+
+      // Start a timeout to progress to step 4 while waiting for the long AI analysis
+      let step4Timeout = setTimeout(() => {
+        setCurrentStep(4); // Extracting medicines...
+      }, 4000);
 
       // Step 2: Send the Cloudinary URL to Gemini AI for analysis
       toast.loading('AI is analyzing prescription...', { id: 'upload-toast' });
@@ -35,6 +55,10 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageUrl: url }),
       });
+      
+      clearTimeout(step4Timeout); // Clear timeout just in case it returned faster than 4s
+      setCurrentStep(4); // Ensure we hit step 4 
+      
       if (!analyzeRes.ok) {
         throw new Error('AI Analysis server request failed.');
       }
@@ -44,14 +68,22 @@ export default function Home() {
         throw new Error(data.error || 'Failed to analyze prescription.');
       }
 
+      setCurrentStep(5); // Almost ready!
+
       // Step 3: Store results in localStorage and navigate to results page
       localStorage.setItem('prescriptionData', JSON.stringify(data));
       toast.success('Prescription analyzed successfully!', { id: 'upload-toast' });
-      router.push('/results');
+      
+      // Small delay so user can actually see the final step 5 checkmark before redirect
+      setTimeout(() => {
+        router.push('/results');
+      }, 600);
+      
     } catch (err) {
       console.error(err);
       toast.error(err.message || 'Something went wrong during analysis.', { id: 'upload-toast' });
       setLoading(false);
+      setCurrentStep(0);
     }
   }
 
@@ -59,33 +91,42 @@ export default function Home() {
   // ── Loading Overlay ──────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-white">
-        <div className="flex items-center gap-3 mb-4">
-          <svg
-            className="animate-spin h-5 w-5 text-[#0F766E]"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
-          <span className="text-lg font-semibold text-gray-900">
-            AI is analyzing your prescription...
-          </span>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white p-6">
+        <div className="w-full max-w-xs mx-auto flex flex-col items-start gap-4">
+          {STEPS.map((step) => {
+            const isActive = currentStep === step.id;
+            const isCompleted = currentStep > step.id;
+            const isVisible = currentStep >= step.id;
+
+            // Rule: Each step should appear after the previous one completes
+            if (!isVisible) return null;
+
+            return (
+              <div key={step.id} className="flex items-center gap-4">
+                <div className="w-6 h-6 flex items-center justify-center flex-shrink-0">
+                  {isCompleted ? (
+                    // Checkmark for completed steps
+                    <svg className="w-6 h-6 text-teal-500" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : isActive ? (
+                    // Spinner for active step
+                    <svg className="animate-spin w-5 h-5 text-teal-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : null}
+                </div>
+                {/* Rule: Active step highlighted in teal color */}
+                <span className={`text-base font-medium ${isActive ? 'text-teal-600' : 'text-gray-900'}`}>
+                  {step.label}
+                </span>
+              </div>
+            );
+          })}
         </div>
-        <p className="text-sm text-gray-500">
+        
+        <p className="mt-12 text-sm text-gray-400 text-center">
           This usually takes under 30 seconds.
         </p>
       </div>
