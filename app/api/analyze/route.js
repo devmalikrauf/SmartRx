@@ -28,8 +28,8 @@ export async function POST(req) {
     else if (imageUrl.includes('.webp')) mimeType = 'image/webp';
     else if (imageUrl.includes('.pdf')) mimeType = 'application/pdf';
 
-    // Use Gemini 1.5 Flash model (free tier)
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    // Use Gemini 2.5 Flash model
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     // The prompt that tells Gemini exactly what to extract from the prescription
     const prompt = `You are a medical prescription reader AI. Analyze the uploaded prescription image carefully and extract the following information in valid JSON format. Do NOT include any markdown formatting, code fences, or extra text — return ONLY the raw JSON object.
