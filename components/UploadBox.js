@@ -2,11 +2,22 @@
 
 import { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
+import toast from 'react-hot-toast';
 
 export default function UploadBox({ onUpload }) {
   // When a file is dropped or selected, call the onUpload handler
   const onDrop = useCallback(
-    (acceptedFiles) => {
+    (acceptedFiles, fileRejections) => {
+      if (fileRejections && fileRejections.length > 0) {
+        const fileErr = fileRejections[0];
+        if (fileErr.errors && fileErr.errors[0]) {
+          // If file is too large or wrong format
+          toast.error(`Upload error: ${fileErr.errors[0].message}. Please upload a JPG, PNG, WEBP, or PDF.`);
+        } else {
+          toast.error('Invalid file type. Please upload a JPG, PNG, WEBP, or PDF.');
+        }
+        return;
+      }
       if (acceptedFiles.length > 0 && onUpload) {
         onUpload(acceptedFiles[0]);
       }

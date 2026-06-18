@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import fitz  # PyMuPDF
+import pytesseract
 from PIL import Image, ImageEnhance
 import io
 
@@ -43,6 +44,56 @@ def check_image_blur(image_bytes: bytes, threshold: float = 100.0) -> tuple[bool
     except Exception as e:
         print(f"Error in check_image_blur: {e}")
         return False, 0.0
+
+def check_image_brightness(image_bytes: bytes, dark_threshold: float = 65.0) -> tuple[bool, float]:
+    """
+    Checks if an image is too dark based on its mean pixel intensity.
+    Returns a tuple: (is_dark, mean_brightness)
+    """
+    try:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return False, 127.0
+            
+        mean_brightness = float(np.mean(img))
+        is_dark = mean_brightness < dark_threshold
+        return is_dark, mean_brightness
+    except Exception as e:
+        print(f"Error in check_image_brightness: {e}")
+        return False, 127.0
+
+def check_and_correct_rotation(image_bytes: bytes) -> tuple[bytes, float]:
+    """
+    Uses Tesseract OSD to detect if an image is rotated and corrects it.
+    Returns: (corrected_image_bytes, rotation_angle)
+    """
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Run Orientation and Script Detection
+        osd = pytesseract.image_to_osd(image)
+        rotation_angle = 0.0
+        
+        for line in osd.split('\n'):
+            if 'Rotate:' in line:
+                rotation_angle = float(line.split(':')[1].strip())
+                break
+                
+        if rotation_angle != 0.0:
+            print(f"Rotation detected: {rotation_angle} degrees. Rotating image back...")
+            # Pillow rotates counter-clockwise, OSD is clockwise, so we use negative angle
+            image = image.rotate(-rotation_angle, expand=True)
+            
+            output_buffer = io.BytesIO()
+            image.save(output_buffer, format="PNG")
+            return output_buffer.getvalue(), rotation_angle
+            
+        return image_bytes, 0.0
+    except Exception as e:
+        # Tesseract OSD throws exception if there isn't enough text, which is fine
+        print(f"OSD rotation check skipped or failed: {e}")
+        return image_bytes, 0.0
 
 def preprocess_and_enhance_image(image_bytes: bytes) -> bytes:
     """

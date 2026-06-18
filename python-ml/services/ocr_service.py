@@ -2,6 +2,7 @@ import pytesseract
 from PIL import Image
 import io
 import os
+import re
 
 # Try common Windows Tesseract installation paths
 COMMON_TESSERACT_PATHS = [
@@ -33,3 +34,36 @@ def extract_text_from_image(image_bytes: bytes) -> str:
     except Exception as e:
         print(f"OCR Exception (Tesseract might not be installed or in PATH): {e}")
         return ""
+
+# Medical and prescription keywords to confirm document validity
+PRESCRIPTION_KEYWORDS = [
+    'rx', 'doctor', 'dr.', 'patient', 'tablet', 'tab', 'capsule', 'cap', 'mg', 
+    'syrup', 'syr', 'ml', 'take', 'dosage', 'frequency', 'instruction', 
+    'prescription', 'medicine', 'twice', 'daily', 'night', 'morning', 'evening', 
+    'food', 'capsules', 'tablets', 'symptoms', 'clinical', 'pharmacy', 'diagnosis'
+]
+
+def verify_is_prescription(ocr_text: str) -> tuple[bool, float]:
+    """
+    Analyzes OCR text for medical keywords to confirm if the document is a prescription.
+    Returns (is_prescription, score)
+    """
+    if not ocr_text:
+        # If OCR returned empty (e.g. Tesseract not installed or failed), 
+        # we return True as fallback with a 0.0 score so we don't block analysis.
+        return True, 0.0
+        
+    ocr_lower = ocr_text.lower()
+    matched_words = []
+    
+    for word in PRESCRIPTION_KEYWORDS:
+        # Use regex to search for word boundary of the keyword
+        if re.search(r'\b' + re.escape(word) + r'\b', ocr_lower):
+            matched_words.append(word)
+            
+    # Calculate score based on number of unique medical keyword matches
+    score = len(matched_words)
+    # If we find at least 2 unique keywords, or "rx" is explicitly present, we confirm it is a prescription
+    is_prescription = score >= 2 or 'rx' in matched_words
+    return is_prescription, float(score)
+
